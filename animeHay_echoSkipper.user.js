@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         AnimeHay EchoSkip – Audio OST Skipper
-// @version      1.0
+// @version      2.0
 // @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_echoSkipper.user.js
 // @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_echoSkipper.user.js
-// @description  Acoustic fingerprint-based OP/ED auto-skipper using Web Audio API
+// @description  Acoustic fingerprint-based OP/ED skipper with Jikan API OST integration
 // @author       TLE47
 // @include      /.*animehay.*/
 // @include      /^https?:\/\/([^\/]+\.)?playhydrax\.[^\/]+\/.*/
@@ -12,6 +12,7 @@
 // @exclude      *://*.github.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -20,15 +21,14 @@
 
     /* ==================== CONFIG ==================== */
     const CFG = {
-        FFT_SIZE: 1024,            // smaller = lighter, 1024 is plenty for fingerprinting
-        SAMPLE_RATE_HZ: 4,        // how many snapshots per second during recording
-        SIG_DURATION_S: 8,        // seconds of audio to capture as a signature
-        MATCH_WINDOW_S: 360,      // scan first 6 minutes for OP
-        MATCH_INTERVAL_MS: 500,   // how often to check correlation (every 0.5s)
-        DEFAULT_THRESHOLD: 0.82,  // correlation threshold for a match
-        DEFAULT_SKIP_DUR: 89,     // default OP/ED duration in seconds
-        ANTI_SPOILER_S: 120,      // don't skip if match is in last 2 minutes
-        COOLDOWN_S: 3,            // consecutive seconds of low corr = song ended
+        FFT_SIZE: 1024,
+        SAMPLE_RATE_HZ: 4,
+        SIG_DURATION_S: 8,
+        MATCH_WINDOW_S: 360,
+        MATCH_INTERVAL_MS: 500,
+        DEFAULT_THRESHOLD: 0.82,
+        DEFAULT_SKIP_DUR: 89,
+        ANTI_SPOILER_S: 120,
     };
 
     /* ==================== ENVIRONMENT ==================== */
@@ -36,7 +36,7 @@
     const $ = (s, ctx = document) => ctx.querySelector(s);
     const video = () => $('video');
 
-    // --- Cross-domain title bridge (same pattern as SmartSkipper) ---
+    // Cross-domain title bridge
     let iframeTitle = '';
     if (isMainPage) {
         setInterval(() => {
@@ -51,11 +51,16 @@
     }
 
     /* ==================== TITLE PARSER ==================== */
-    function getSeriesKey() {
+    function getCleanTitle() {
         const raw = isMainPage ? document.title : iframeTitle;
         if (!raw) return null;
         const m = raw.match(/Phim\s+(.+?)\s+Tập/i);
-        let t = m ? m[1] : raw;
+        return m ? m[1].trim() : raw.trim();
+    }
+
+    function getSeriesKey() {
+        let t = getCleanTitle();
+        if (!t) return null;
         t = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             .replace(/[^\w\s]/gi, '')
             .replace(/\b(xem phim|phim|tap|vietsub|thuyet minh|long tieng|tron bo|movie|ova|tv|animehay|anime)\b/gi, '')
@@ -72,11 +77,55 @@
     let lib = loadLib();
     let ui = loadUI();
 
+    /* ==================== API INTEGRATION (JIKAN) ==================== */
+    function fetchThemes(title, callback) {
+        const key = getSeriesKey();
+        if (lib[key] && lib[key].themes) {
+            callback(lib[key].themes);
+            return;
+        }
+        
+        setStatus('🔍 Searching OST on Jikan...');
+        GM_xmlhttpRequest({
+            method: "GET",
+            url: `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&limit=1`,
+            onload: function(res) {
+                try {
+                    const data = JSON.parse(res.responseText);
+                    if (data.data && data.data.length > 0) {
+                        const id = data.data[0].mal_id;
+                        GM_xmlhttpRequest({
+                            method: "GET",
+                            url: `https://api.jikan.moe/v4/anime/${id}/themes`,
+                            onload: function(res2) {
+                                try {
+                                    const themesData = JSON.parse(res2.responseText);
+                                    if (themesData.data) {
+                                        if (!lib[key]) lib[key] = {};
+                                        lib[key].themes = {
+                                            op: themesData.data.openings || [],
+                                            ed: themesData.data.endings || []
+                                        };
+                                        saveLib(lib);
+                                        callback(lib[key].themes);
+                                    }
+                                } catch (e) { callback(null); }
+                            }
+                        });
+                    } else { callback(null); }
+                } catch (e) { callback(null); }
+            }
+        });
+    }
+
     /* ==================== AUDIO ENGINE ==================== */
     let audioCtx = null, analyser = null, sourceNode = null;
-    let isRecording = false, recordType = null; // 'op' | 'ed'
+    let isRecording = false, recordType = null;
     let recordBuffer = [];
     let isListening = false, hasSkippedOP = false, hasSkippedED = false;
+
+    // Temporary storage for confirmation
+    let pendingRecord = null; 
 
     function initAudio(vid) {
         if (audioCtx) return true;
@@ -87,10 +136,9 @@
             analyser.smoothingTimeConstant = 0.3;
             sourceNode = audioCtx.createMediaElementSource(vid);
             sourceNode.connect(analyser);
-            analyser.connect(audioCtx.destination); // keep audio audible
+            analyser.connect(audioCtx.destination);
             return true;
         } catch (e) {
-            console.warn('[EchoSkip] Audio init failed:', e.message);
             return false;
         }
     }
@@ -99,7 +147,6 @@
         const bins = analyser.frequencyBinCount;
         const data = new Float32Array(bins);
         analyser.getFloatFrequencyData(data);
-        // Downsample to 64 bands for lightweight storage
         const bands = 64;
         const step = Math.floor(bins / bands);
         const out = new Float32Array(bands);
@@ -111,7 +158,6 @@
         return out;
     }
 
-    /** Record N seconds of frequency snapshots → 2D signature */
     function startRecording(type) {
         const vid = video();
         if (!vid) return;
@@ -121,30 +167,45 @@
         recordType = type;
         isRecording = true;
         recordBuffer = [];
+        const startTime = vid.currentTime;
         setStatus(`🔴 Recording ${type.toUpperCase()}... (${CFG.SIG_DURATION_S}s)`);
 
         const ivl = setInterval(() => {
-            if (!isRecording) { clearInterval(ivl); return; }
+            if (!isRecording || vid.paused) return; // Pause recording if video pauses
             recordBuffer.push(Array.from(getFreqSnapshot()));
+            if (recordBuffer.length >= CFG.SIG_DURATION_S * CFG.SAMPLE_RATE_HZ) {
+                clearInterval(ivl);
+                isRecording = false;
+                
+                // Store in pending instead of saving directly
+                pendingRecord = {
+                    type: recordType,
+                    frames: recordBuffer,
+                    startTime: startTime,
+                    endTime: vid.currentTime
+                };
+                
+                showConfirmationUI();
+                setStatus(`✅ Recorded. Please confirm sample.`);
+            }
         }, 1000 / CFG.SAMPLE_RATE_HZ);
-
-        setTimeout(() => {
-            clearInterval(ivl);
-            isRecording = false;
-            saveSignature(recordType, recordBuffer, vid.currentTime);
-        }, CFG.SIG_DURATION_S * 1000);
     }
 
-    function saveSignature(type, frames, captureTime) {
+    function savePendingSignature() {
+        if (!pendingRecord) return;
         const key = getSeriesKey();
-        if (!key || frames.length === 0) { setStatus('❌ No data captured'); return; }
+        if (!key) return;
 
         if (!lib[key]) lib[key] = {};
-        lib[key][type + '_sig'] = frames;
-        lib[key][type + '_dur'] = lib[key][type + '_dur'] || CFG.DEFAULT_SKIP_DUR;
-        lib[key][type + '_captureTime'] = Math.floor(captureTime);
+        lib[key][pendingRecord.type + '_sig'] = pendingRecord.frames;
+        lib[key][pendingRecord.type + '_dur'] = lib[key][pendingRecord.type + '_dur'] || CFG.DEFAULT_SKIP_DUR;
+        // Default auto-skip to true
+        if (typeof lib[key].autoSkip === 'undefined') lib[key].autoSkip = true;
+        
         saveLib(lib);
-        setStatus(`✅ ${type.toUpperCase()} signature saved (${frames.length} frames)`);
+        setStatus(`✅ ${pendingRecord.type.toUpperCase()} signature saved.`);
+        pendingRecord = null;
+        hideConfirmationUI();
         refreshInfo();
     }
 
@@ -163,25 +224,33 @@
         return den === 0 ? 0 : num / den;
     }
 
-    /** Flatten a 2D signature into a 1D vector for fast comparison */
     function flatten(sig) {
         const out = [];
         for (const frame of sig) out.push(...frame);
         return out;
     }
 
-    /** Compare a rolling window of live audio against a saved signature */
     function correlateWindow(liveBuffer, savedSig) {
         const flatSaved = flatten(savedSig);
         const sigLen = flatSaved.length;
         if (liveBuffer.length < sigLen) return 0;
-        // Take the most recent chunk matching saved length
         const chunk = liveBuffer.slice(liveBuffer.length - sigLen);
         return pearson(chunk, flatSaved);
     }
 
-    /* ==================== LISTENING (Auto-Detection) ==================== */
+    /* ==================== LISTENING & MANUAL PROMPT ==================== */
     let listenIvl = null, liveRing = [];
+
+    function triggerSkip(type, entry, t, vid) {
+        const skipTo = t + (entry[type + '_dur'] || CFG.DEFAULT_SKIP_DUR);
+        
+        if (entry.autoSkip !== false) {
+            vid.currentTime = Math.min(skipTo, vid.duration || skipTo);
+            setStatus(`🚀 ${type.toUpperCase()} Auto-Skipped!`);
+        } else {
+            showManualPrompt(type, skipTo);
+        }
+    }
 
     function startListening() {
         const vid = video();
@@ -193,28 +262,20 @@
         liveRing = [];
 
         listenIvl = setInterval(() => {
-            if (!video() || video().paused) return;
+            if (!video() || video().paused || isRecording) return;
             const v = video();
             const t = v.currentTime;
             const dur = v.duration || 0;
 
-            // Stop scanning after window
-            if (t > CFG.MATCH_WINDOW_S && hasSkippedOP) {
-                // keep listening for ED (near end)
-            }
-
-            // Anti-spoiler: don't match in last 2 minutes
             if (dur > 0 && t > dur - CFG.ANTI_SPOILER_S) return;
 
             const snap = Array.from(getFreqSnapshot());
             liveRing.push(...snap);
 
-            // Keep ring buffer bounded (2x signature length)
             const key = getSeriesKey();
             if (!key || !lib[key]) return;
             const entry = lib[key];
 
-            // Check OP
             if (entry.op_sig && !hasSkippedOP && t < CFG.MATCH_WINDOW_S) {
                 const sigLen = flatten(entry.op_sig).length;
                 if (liveRing.length > sigLen * 2) liveRing.splice(0, liveRing.length - sigLen * 2);
@@ -222,21 +283,16 @@
                 updateMeter(corr);
                 if (corr >= ui.threshold) {
                     hasSkippedOP = true;
-                    const skipTo = t + (entry.op_dur || CFG.DEFAULT_SKIP_DUR);
-                    v.currentTime = skipTo;
-                    setStatus(`🚀 OP skipped! (r=${corr.toFixed(2)})`);
+                    triggerSkip('op', entry, t, v);
                 }
             }
 
-            // Check ED
             if (entry.ed_sig && !hasSkippedED && dur > 0 && t > dur * 0.7) {
                 const corr = correlateWindow(liveRing, entry.ed_sig);
                 updateMeter(corr);
                 if (corr >= ui.threshold) {
                     hasSkippedED = true;
-                    const skipTo = t + (entry.ed_dur || CFG.DEFAULT_SKIP_DUR);
-                    v.currentTime = Math.min(skipTo, dur);
-                    setStatus(`🚀 ED skipped! (r=${corr.toFixed(2)})`);
+                    triggerSkip('ed', entry, t, v);
                 }
             }
         }, CFG.MATCH_INTERVAL_MS);
@@ -250,7 +306,6 @@
 
     /* ==================== GUI (Main Page Only) ==================== */
     function setStatus(msg) {
-        console.log('[EchoSkip]', msg);
         const el = $('#echo-status');
         if (el) el.textContent = msg;
     }
@@ -261,17 +316,117 @@
         bar.style.width = pct + '%';
         bar.style.background = val >= ui.threshold ? '#4caf50' : (val > 0.5 ? '#ff9800' : '#555');
     }
+    
     function refreshInfo() {
         const el = $('#echo-info');
+        const ostEl = $('#echo-ost-names');
         if (!el) return;
         const key = getSeriesKey();
-        if (!key) { el.textContent = 'No title detected'; return; }
+        if (!key) { 
+            el.textContent = 'No title detected'; 
+            if(ostEl) ostEl.innerHTML = '';
+            return; 
+        }
+        
         const entry = lib[key];
-        if (!entry) { el.textContent = `"${key}" — No signatures`; return; }
+        if (!entry) { 
+            el.textContent = `"${key}" — No signatures`; 
+            if(ostEl) ostEl.innerHTML = '';
+            return; 
+        }
+        
         const parts = [];
         if (entry.op_sig) parts.push(`OP ✓ (${entry.op_dur}s)`);
         if (entry.ed_sig) parts.push(`ED ✓ (${entry.ed_dur}s)`);
         el.textContent = parts.length ? parts.join(' · ') : 'No signatures';
+        
+        // Auto Skip Toggle
+        const toggleBtn = $('#echo-auto-toggle');
+        if (toggleBtn) {
+            const isAuto = entry.autoSkip !== false;
+            toggleBtn.textContent = isAuto ? '🤖 Auto Skip: ON' : '🖐 Manual Skip: ON';
+            toggleBtn.className = isAuto ? 'echo-btn go' : 'echo-btn';
+        }
+
+        // Fetch OST Names
+        if (ostEl) {
+            const title = getCleanTitle();
+            if (title && !entry.themes) {
+                fetchThemes(title, (themes) => {
+                    renderThemes(themes, ostEl);
+                });
+            } else {
+                renderThemes(entry.themes, ostEl);
+            }
+        }
+    }
+
+    function renderThemes(themes, container) {
+        if (!themes) { container.innerHTML = '<div style="color:#888;">No OST data found.</div>'; return; }
+        let html = '';
+        if (themes.op && themes.op.length) html += `<div title="${themes.op.join('\n')}">🎵 <b>OP:</b> ${themes.op[0].substring(0,40)}...</div>`;
+        if (themes.ed && themes.ed.length) html += `<div title="${themes.ed.join('\n')}">🎵 <b>ED:</b> ${themes.ed[0].substring(0,40)}...</div>`;
+        container.innerHTML = html;
+    }
+
+    function showConfirmationUI() {
+        if (!isMainPage) return;
+        const box = $('#echo-confirm-box');
+        if (box) {
+            box.style.display = 'block';
+            $('#echo-confirm-text').textContent = `Review ${pendingRecord.type.toUpperCase()} Sample`;
+        }
+    }
+    
+    function hideConfirmationUI() {
+        if (!isMainPage) return;
+        const box = $('#echo-confirm-box');
+        if (box) box.style.display = 'none';
+    }
+
+    // Manual prompt UI injected into player
+    function showManualPrompt(type, skipTo) {
+        if (isMainPage) {
+            // Tell iframe to show prompt
+            document.querySelectorAll('iframe').forEach(f => {
+                try { f.contentWindow.postMessage({ type: 'ECHO_SHOW_PROMPT', skipType: type, skipTo: skipTo }, '*'); } catch (_) {}
+            });
+        }
+        
+        // Show in current context
+        let prompt = $('#echo-manual-prompt');
+        if (!prompt) {
+            prompt = document.createElement('div');
+            prompt.id = 'echo-manual-prompt';
+            prompt.style.cssText = 'position:absolute; bottom:80px; right:30px; background:rgba(0,0,0,0.8); color:#fff; padding:10px 15px; border-radius:8px; z-index:999999; font-family:sans-serif; border:1px solid #e94560; box-shadow:0 4px 15px rgba(233,69,96,0.5); display:flex; gap:10px; align-items:center; cursor:pointer; transition:transform 0.2s;';
+            prompt.innerHTML = `<span>⏭️ Skip <b id="emp-type"></b></span>`;
+            
+            prompt.onmouseover = () => prompt.style.transform = 'scale(1.05)';
+            prompt.onmouseout = () => prompt.style.transform = 'scale(1)';
+            
+            document.body.appendChild(prompt);
+        }
+        
+        $('#emp-type', prompt).textContent = type.toUpperCase();
+        prompt.style.display = 'flex';
+        
+        prompt.onclick = () => {
+            const v = video();
+            if (v) v.currentTime = Math.min(skipTo, v.duration || skipTo);
+            prompt.style.display = 'none';
+            if (isMainPage) setStatus(`🚀 ${type.toUpperCase()} Manually Skipped!`);
+        };
+        
+        // Hide after 15 seconds
+        setTimeout(() => { if (prompt) prompt.style.display = 'none'; }, 15000);
+    }
+
+    if (!isMainPage) {
+        window.addEventListener('message', e => {
+            if (e.data?.type === 'ECHO_SHOW_PROMPT') {
+                showManualPrompt(e.data.skipType, e.data.skipTo);
+            }
+        });
     }
 
     if (isMainPage) {
@@ -289,14 +444,17 @@
             .echo-btn.rec { background:#b91c1c; }
             .echo-btn.rec:hover { background:#dc2626; }
             .echo-btn.go { background:#166534; }
+            .echo-btn.warn { background:#b45309; }
             .echo-btn.del { background:#7f1d1d; font-size:10px; }
             #echo-meter { width:100%; height:8px; background:#222; border-radius:4px; overflow:hidden; }
             #echo-meter-fill { height:100%; width:0%; background:#555; transition:width 0.3s, background 0.3s; border-radius:4px; }
-            #echo-info { font-size:10px; color:#888; text-align:center; }
+            #echo-info { font-size:10px; color:#888; text-align:center; font-weight:bold;}
+            #echo-ost-names { font-size:9px; color:#aaa; line-height:1.4; background:#111827; padding:4px; border-radius:4px; margin-top:2px;}
             #echo-status { font-size:11px; color:#aaa; text-align:center; margin-top:2px; }
             .echo-slider { display:flex; align-items:center; gap:6px; font-size:10px; color:#888; }
             .echo-slider input[type=range] { flex:1; accent-color:#e94560; height:4px; }
             .echo-section { border-top:1px solid #333; padding-top:6px; margin-top:2px; }
+            #echo-confirm-box { display:none; background:#374151; padding:8px; border-radius:6px; border:1px dashed #fbbf24; margin-top:4px; text-align:center; }
         `;
         document.head.append(css);
 
@@ -312,21 +470,35 @@
             </div>
             <div id="echo-body">
                 <div id="echo-info">Detecting title…</div>
-                <div id="echo-meter"><div id="echo-meter-fill"></div></div>
+                <div id="echo-ost-names"></div>
+                
+                <div id="echo-meter" style="margin-top:4px;"><div id="echo-meter-fill"></div></div>
 
                 <div class="echo-section">
-                    <div style="font-size:10px;color:#888;margin-bottom:4px;">🎤 Record Signatures</div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span style="font-size:10px;color:#888;">🎤 Record Signatures</span>
+                        <button class="echo-btn go" id="echo-auto-toggle" style="padding:2px 6px; font-size:9px;">🤖 Auto Skip: ON</button>
+                    </div>
                     <div class="echo-row">
                         <button class="echo-btn rec" id="echo-rec-op">⏺ Record OP</button>
                         <button class="echo-btn rec" id="echo-rec-ed">⏺ Record ED</button>
+                    </div>
+                    
+                    <div id="echo-confirm-box">
+                        <div id="echo-confirm-text" style="font-size:11px; margin-bottom:6px;"></div>
+                        <div class="echo-row" style="justify-content:center;">
+                            <button class="echo-btn warn" id="echo-replay-btn">▶️ Replay</button>
+                            <button class="echo-btn go" id="echo-save-btn">✅ Save</button>
+                            <button class="echo-btn del" id="echo-cancel-btn">❌</button>
+                        </div>
                     </div>
                 </div>
 
                 <div class="echo-section">
                     <div style="font-size:10px;color:#888;margin-bottom:4px;">⏱️ Skip Duration (seconds)</div>
                     <div class="echo-row">
-                        <input type="number" id="echo-op-dur" placeholder="OP (89)" title="OP skip duration">
-                        <input type="number" id="echo-ed-dur" placeholder="ED (89)" title="ED skip duration">
+                        <input type="number" id="echo-op-dur" placeholder="OP (89)">
+                        <input type="number" id="echo-ed-dur" placeholder="ED (89)">
                         <button class="echo-btn go" id="echo-save-dur">💾</button>
                     </div>
                 </div>
@@ -344,8 +516,8 @@
                     </div>
                 </div>
 
-                <div class="echo-row" style="justify-content:center;">
-                    <button class="echo-btn del" id="echo-clear">🗑️ Clear This Anime</button>
+                <div class="echo-row" style="justify-content:center; margin-top:4px;">
+                    <button class="echo-btn del" id="echo-clear">🗑️ Clear Anime</button>
                     <button class="echo-btn" id="echo-export" style="font-size:10px">📤 Export</button>
                     <button class="echo-btn" id="echo-import" style="font-size:10px">📥 Import</button>
                 </div>
@@ -355,7 +527,6 @@
         `;
         document.body.append(gui);
 
-        // --- Minimize / Restore ---
         if (ui.minimized) { $('#echo-body').classList.add('hidden'); $('#echo-min').textContent = '+'; }
         if (ui.left !== null) { gui.style.left = ui.left + 'px'; gui.style.top = ui.top + 'px'; gui.style.bottom = 'auto'; }
 
@@ -367,15 +538,37 @@
             saveUI(ui);
         };
 
-        // --- Dragging ---
         let dragging = false, off = { x: 0, y: 0 };
         $('#echo-header').onmousedown = e => { if (e.target.tagName !== 'BUTTON') { dragging = true; off = { x: e.clientX - gui.offsetLeft, y: e.clientY - gui.offsetTop }; } };
         window.onmousemove = e => { if (dragging) { gui.style.left = (e.clientX - off.x) + 'px'; gui.style.top = (e.clientY - off.y) + 'px'; gui.style.bottom = 'auto'; gui.style.right = 'auto'; } };
         window.onmouseup = () => { if (dragging) { ui.left = gui.offsetLeft; ui.top = gui.offsetTop; saveUI(ui); } dragging = false; };
 
-        // --- Controls ---
         $('#echo-rec-op').onclick = () => startRecording('op');
         $('#echo-rec-ed').onclick = () => startRecording('ed');
+
+        $('#echo-replay-btn').onclick = () => {
+            const v = video();
+            if (v && pendingRecord) {
+                v.currentTime = pendingRecord.startTime;
+                v.play();
+            }
+        };
+        
+        $('#echo-save-btn').onclick = () => savePendingSignature();
+        
+        $('#echo-cancel-btn').onclick = () => {
+            pendingRecord = null;
+            hideConfirmationUI();
+            setStatus('Cancelled recording.');
+        };
+
+        $('#echo-auto-toggle').onclick = () => {
+            const key = getSeriesKey();
+            if (!key || !lib[key]) { setStatus('❌ Record a signature first'); return; }
+            lib[key].autoSkip = (lib[key].autoSkip === false) ? true : false;
+            saveLib(lib);
+            refreshInfo();
+        };
 
         $('#echo-save-dur').onclick = () => {
             const key = getSeriesKey();
@@ -424,7 +617,6 @@
                         const imported = JSON.parse(ev.target.result);
                         for (const [k, v] of Object.entries(imported)) {
                             if (!lib[k]) lib[k] = v;
-                            // merge: keep existing sigs, only add missing ones
                             else {
                                 if (v.op_sig && !lib[k].op_sig) { lib[k].op_sig = v.op_sig; lib[k].op_dur = v.op_dur; }
                                 if (v.ed_sig && !lib[k].ed_sig) { lib[k].ed_sig = v.ed_sig; lib[k].ed_dur = v.ed_dur; }
@@ -440,7 +632,6 @@
             inp.click();
         };
 
-        // Load duration fields if data exists
         setTimeout(() => {
             refreshInfo();
             const key = getSeriesKey();
@@ -460,7 +651,6 @@
             hasSkippedOP = false;
             hasSkippedED = false;
 
-            // Auto-start listening if signatures exist for this anime
             v.addEventListener('play', () => {
                 const key = getSeriesKey();
                 if (key && lib[key] && (lib[key].op_sig || lib[key].ed_sig)) {

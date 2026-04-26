@@ -88,12 +88,19 @@
     debugContainer.appendChild(logsBody);
 
     let isAttached = false;
-    let isMinimized = false;
+    let isMinimized = GM_getValue("epTracker_minimized", false);
+
+    // Apply initial saved state
+    if (isMinimized) {
+        logsBody.style.display = 'none';
+        header.querySelector('#ep-min-btn').innerText = '+';
+    }
 
     header.querySelector('#ep-min-btn').onclick = () => {
         isMinimized = !isMinimized;
         logsBody.style.display = isMinimized ? 'none' : 'block';
         header.querySelector('#ep-min-btn').innerText = isMinimized ? '+' : '−';
+        GM_setValue("epTracker_minimized", isMinimized);
         checkIntersection();
     };
 

@@ -1,6 +1,6 @@
 # ⭐ Gold Score Highlight
 
-![Gold Score Highlight](assets/gold.png)
+<img src="../assets/gold.png" width="50%" alt="Gold Score Highlight">
 
 Make the best anime truly shine! This script highlights highly-rated shows to help you pick your next binge. 🌟
 

@@ -1,5 +1,7 @@
 # Animehay2Anilist (Auto-Tracker)
 
+![Animehay2Anilist](https://placehold.co/800x400/222222/3db4f2?text=Animehay2Anilist)
+
 ## Overview
 **Animehay2Anilist** is a robust, iframe-busting, comprehensive user-script built for seamless watch time metrics tracking and automatic episode pushing between AnimeHay (and standard iframe hosts like Hydrax/SSPlay) and your AniList profile. 
 

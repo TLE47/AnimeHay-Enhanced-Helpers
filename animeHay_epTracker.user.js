@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AnimeHay from AniList epTracker
 // @version      2.5
-// @updateURL    https://raw.githubusercontent.com/TLE47/animehay_epTracker_anilist/main/animehay_epTracker_anilist.user.js
-// @downloadURL  https://raw.githubusercontent.com/TLE47/animehay_epTracker_anilist/main/animehay_epTracker_anilist.user.js
+// @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_epTracker.user.js
+// @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_epTracker.user.js
 // @description  Highlight next episode based on AniList
 // @author       Gemini
 // @include      /.*animehay.*/

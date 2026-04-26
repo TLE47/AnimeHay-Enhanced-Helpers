@@ -1,5 +1,7 @@
 # AnimeHay Smart Video Skipper
 
+![AnimeHay Smart Video Skipper](https://placehold.co/800x400/222222/ff5555?text=AnimeHay+Smart+Video+Skipper)
+
 ## Overview
 **AnimeHay Smart Video Skipper** is a heavy-duty, rules-based fuzzy matching skipping suite. It is designed to allow you to configure global "Skip DB" timings (for anime openings/endings) and perfectly execute them across all complex nested HTML5 video iframes found on AnimeHay.
 

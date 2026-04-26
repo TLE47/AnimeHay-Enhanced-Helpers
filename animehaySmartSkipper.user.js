@@ -1,9 +1,8 @@
 // ==UserScript==
 // @name         AnimeHay Smart Video Skipper (Iframe & Full Site)
-// @namespace    http://tampermonkey.net/
 // @version      4.0
-// @updateURL    https://raw.githubusercontent.com/TLE47/animehay_epTracker_anilist/main/animehaySmartSkipper.user.js
-// @downloadURL  https://raw.githubusercontent.com/TLE47/animehay_epTracker_anilist/main/animehaySmartSkipper.user.js
+// @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animehaySmartSkipper.user.js
+// @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animehaySmartSkipper.user.js
 // @description  Fuzzy search skipper that works across iframes (Hydrax) with shared DB
 // @author       Gemini
 // @include      /.*animehay.*/

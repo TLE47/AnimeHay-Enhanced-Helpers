@@ -1,9 +1,8 @@
     // ==UserScript==
     // @name         AnimeHay to AniList Auto-Tracker (Ultimate Gold Merged)
-    // @namespace    http://tampermonkey.net/
     // @version      5.0
-    // @updateURL    https://raw.githubusercontent.com/TLE47/animehay_epTracker_anilist/main/Animehay2Anilist.user.js
-    // @downloadURL  https://raw.githubusercontent.com/TLE47/animehay_epTracker_anilist/main/Animehay2Anilist.user.js
+    // @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/Animehay2Anilist.user.js
+    // @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/Animehay2Anilist.user.js
     // @description  Support for Hydrax & SSPlay + Library Management
     // @author       Gemini
     // @include      /.*animehay.*/

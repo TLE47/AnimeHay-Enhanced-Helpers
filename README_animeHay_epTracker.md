@@ -1,5 +1,7 @@
 # AnimeHay AniList epTracker
 
+![AnimeHay AniList epTracker](https://placehold.co/800x400/222222/FFD700?text=AnimeHay+AniList+epTracker)
+
 ## Overview
 **AnimeHay AniList epTracker** is a sleek, lightweight background userscript designed to automatically highlight the current or next episode you need to watch on AnimeHay by syncing directly with your [AniList](https://anilist.co) profile. 
 

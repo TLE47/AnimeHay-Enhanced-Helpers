@@ -41,7 +41,7 @@
     if (isMainPage) {
         setInterval(() => {
             document.querySelectorAll('iframe').forEach(f => {
-                try { f.contentWindow.postMessage({ type: 'ECHO_TITLE', title: document.title }, '*'); } catch (_) {}
+                try { f.contentWindow.postMessage({ type: 'ECHO_TITLE', title: document.title }, '*'); } catch (_) { /* ignore */ }
             });
         }, 2000);
     } else {

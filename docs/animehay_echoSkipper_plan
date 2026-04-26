@@ -1,0 +1,63 @@
+Project Title: EchoSkip Framework
+Objective: To develop a local, autonomous audio-recognition suite for animehay that identifies and skips theme songs (OP/ED) using acoustic correlation rather than fragile external APIs.
+
+1. Functional Requirements
+Acoustic Correlation Engine:
+
+Utilizes Web Audio API to capture a 10-second "signature" of the OST frequency peaks.
+
+Performs real-time Pearson Correlation math to detect matches during playback.
+
+Self-correcting for "Cold Opens" and inconsistent timestamps.
+
+Dynamic GUI:
+
+Architecture: Moveable, minimizable, and closable floating widget (Shadow DOM).
+
+UI Features: Opacity slider for "ghost" mode and a confidence threshold meter.
+
+Controls: Recording triggers for OP/ED and adjustable skip-duration inputs.
+
+Metadata Integration:
+
+Automated Scraper: Detects Anime Title and Episode number from page elements.
+
+API Link: Queries Aniplaylist to fetch and display the official song titles/artists.
+
+2. Data Persistence (Local Library)
+Storage: Uses GM_setValue to create a local database of audio signatures.
+
+Logic: Once a signature is recorded for a series, the script automatically applies it to all future episodes without further user input.
+
+3. Core Logic Flow (The "Echo" Process)
+Monitor: On page load, the "Listener" scans the first 6 minutes of audio.
+
+Match: If the live frequency profile correlates >85% with the saved signature, a match is flagged.
+
+Execute: If "Auto-Skip" is enabled, the script moves the video.currentTime forward by the user-defined duration.
+
+Display: The GUI updates to show the specific OST metadata fetched from the database.
+
+4. Technical Constraints & Spec
+Platform: ScriptCat (utilizing background scripts for signature processing).
+
+Performance: Lightweight "Frequency-Domain" analysis to keep CPU usage below 5%.
+
+Privacy: 100% local processing; no audio data leaves the browser.
+
+5. Success Metrics
+Zero-Database Reliance: The script must function even if all anime tracking sites (AniSkip/MAL) are offline.
+
+Accuracy: Successful skip trigger regardless of the length of the episode's prologue (Cold Open).
+
+User Effort: Maximum "One-Click" setup per new series.
+
+1. The GUI: "The Command Deck"The interface needs to stay out of the way of the subtitles while remaining accessible.Design Pattern: A "Floating Widget" using a Shadow DOM wrapper. This ensures the site's CSS (Animehay) doesn't break the script's UI.Moveable/Minimizable Logic: Implement a "Drag Handle" (top bar). Minimizing shrinks the GUI to a tiny, semi-transparent icon in the corner.Opacity Slider: A range input that adjusts the rgba alpha value of the primary container.Controls:Mode Toggle: [Auto-Skip] | [Manual (Prompt)].Capture Buttons: [Record OP Signature] | [Record ED Signature].Duration Inputs: Numerical fields to set the expected length (defaulting to 90s).Metadata Display: Shows the detected Anime Title, Episode, and the OST name fetched from Aniplaylist.2. The Audio Pipeline: "The Listener"Since we aren't downloading files, we tap directly into the browser's audio stream.A. Real-Time CaptureSource: AudioContext.createMediaElementSource(videoElement). This allows the script to "hear" exactly what the player is outputting.Processing: An AnalyserNode with a high Fast Fourier Transform (FFT) size (e.g., 2048 or 4096). This converts raw audio waves into frequency data.B. The Correlation Engine (The Math)To handle inconsistencies, we don't look for an "exact match." We look for Similarity.Signature Generation: When you hit "Record," the script captures a 10-second "Spectrogram" (a 2D map of frequencies over time).The Sliding Window: Every second, the script compares the current audio's spectrogram against the saved signature using Pearson Correlation Coefficient:$$r = \frac{\sum (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum (x_i - \bar{x})^2 \sum (y_i - \bar{y})^2}}$$Threshold Trigger: If $r > 0.85$ (85% similarity), the script assumes the OST has started.3. Metadata & API IntegrationTo make the experience feel premium, the script needs to "know" what it's watching.Animehay Scraper: A background function that runs on page load. It uses Regex to pull the title and episode number from the <h1> or .breadcrumb elements of the site.Aniplaylist Bridge: * Step 1: Use the scraped title to query the Aniplaylist search API.Step 2: Match the results to find the corresponding OP/ED names and artists.Step 3: Display the song name in the GUI. (e.g., "Now Playing: 'Bling-Bang-Bang-Born' by Creepy Nuts").4. Persistence & Storage: "The Library"The goal is to only "teach" the script once per series.Database Structure: Use GM_setValue to store a JSON object structured by Anime ID.JSON{
+  "Chainsaw_Man": {
+    "op_signature": [0.12, 0.45, ...], 
+    "ed_signature": [0.88, 0.23, ...],
+    "op_duration": 90,
+    "auto_skip": true
+  }
+}
+Auto-Load: Upon page load, the script checks the Title. If a match exists in storage, it silently begins the correlation "listening" mode without user intervention.5. Advanced Features & AdjustmentsTo make this more robust than a standard skipper:"Fuzzy" Duration Logic: Instead of a hard 90s skip, let the script "listen" for the end of the song too. If the correlation drops significantly for 3 consecutive seconds, it marks the end of the OST.Confidence Threshold Slider: If the audio quality on Animehay is low (compressed), you can lower the "strictness" of the match via a slider in the GUI.The "Anti-Spoiler" Buffer: A feature that prevents skipping if the "Match" happens in the last 2 minutes of an episode (to prevent accidentally skipping a post-credit scene).Visual Debugger (Optional/Toggleable): A small oscilloscope in the GUI showing the correlation "hit" in real-time. It’s satisfying to see the bar turn green when the song starts.Getty ImagesSummary of the WorkflowOpen Animehay: The GUI appears (minimized by default).First-Time Setup: You play Episode 1. When the song starts, hit "Record OP."Automatic Identification: The script fetches the song name from Aniplaylist and saves the audio signature.Hands-Off Viewing: From Episode 2 onwards, the script "hears" the song start, waits for your "Confidence" check, and jumps the video forward by your specified duration.This design is lightweight because it doesn't process video pixels—only small arrays of audio numbers—and it’s resilient because it relies on your own "recorded" truth rather than a dying community API.

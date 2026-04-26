@@ -364,10 +364,21 @@
         const key = findMatchKey();
         if (key) {
             const match = store.db[key].rules.find(r => getMins(v.duration) >= r.min && getMins(v.duration) <= r.max);
-            if (match && v.currentTime < match.skip) {
-                v.currentTime = match.skip;
-                isSkipped = true;
-                if (isMainPage) $('#sk-status').textContent = `🚀 Skipped by ${key}`;
+            if (match) {
+                // If the video is already past the skip time (e.g. via website's save timestamp feature),
+                // we disable skipping so it doesn't trigger if they rewind.
+                if (v.currentTime >= match.skip) {
+                    isSkipped = true;
+                    return;
+                }
+
+                // We wait until playback reaches 1.5s to give the native website scripts
+                // time to restore any saved timestamps before we jump the gun.
+                if (v.currentTime > 1.5 && v.currentTime < match.skip) {
+                    v.currentTime = match.skip;
+                    isSkipped = true;
+                    if (isMainPage) $('#sk-status').textContent = `🚀 Skipped by ${key}`;
+                }
             }
         }
     };

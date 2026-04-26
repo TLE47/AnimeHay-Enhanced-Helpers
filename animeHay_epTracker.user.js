@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         AnimeHay from AniList epTracker
-// @version      2.5
+// @version      2.6
 // @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_epTracker.user.js
 // @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_epTracker.user.js
 // @description  Highlight next episode based on AniList
 // @author       Gemini
-// @include      /.*animehay.*/
+// @include      /.*animehay.*\/thong-tin-phim\/.*/
 // @exclude      *://github.com/*
 // @exclude      *://*.github.com/*
 // @grant        GM_setValue
@@ -17,6 +17,8 @@
 
 (function () {
     'use strict';
+    if (!window.location.href.includes('thong-tin-phim')) return;
+
     let TOKEN = GM_getValue("anilist_token", "");
 
     if (!TOKEN) {

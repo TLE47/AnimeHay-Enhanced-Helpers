@@ -36,17 +36,55 @@
     const $ = (s, ctx = document) => ctx.querySelector(s);
     const video = () => $('video');
 
-    // Cross-domain title bridge
+    // Cross-domain bridge: title down to iframe, commands/results back up
     let iframeTitle = '';
+
+    function broadcastToIframes(msg) {
+        document.querySelectorAll('iframe').forEach(f => {
+            try { f.contentWindow.postMessage(msg, '*'); } catch (_) { /* ignore */ }
+        });
+    }
+
     if (isMainPage) {
-        setInterval(() => {
-            document.querySelectorAll('iframe').forEach(f => {
-                try { f.contentWindow.postMessage({ type: 'ECHO_TITLE', title: document.title }, '*'); } catch (_) { /* ignore */ }
-            });
-        }, 2000);
-    } else {
+        // Push title to iframe every 2s
+        setInterval(() => broadcastToIframes({ type: 'ECHO_TITLE', title: document.title }), 2000);
+
+        // Receive results from iframe
         window.addEventListener('message', e => {
-            if (e.data?.type === 'ECHO_TITLE') iframeTitle = e.data.title;
+            if (!e.data) return;
+            if (e.data.type === 'ECHO_RECORD_DONE') {
+                pendingRecord = { type: e.data.recType, frames: e.data.frames, startTime: e.data.startTime, endTime: e.data.endTime };
+                showConfirmationUI();
+                setStatus('✅ Recorded. Replay & confirm.');
+            } else if (e.data.type === 'ECHO_CORR_UPDATE') {
+                updateMeter(e.data.corr);
+            } else if (e.data.type === 'ECHO_SKIP_TRIGGER') {
+                // iframe detected a match — handle skip/prompt on main page side
+                const key = getSeriesKey();
+                if (!key || !lib[key]) return;
+                const entry = lib[key];
+                const skipTo = e.data.skipTo;
+                if (entry.autoSkip !== false) {
+                    // Tell iframe to jump video
+                    broadcastToIframes({ type: 'ECHO_CMD_JUMP', skipTo: skipTo });
+                    setStatus(`🚀 ${e.data.skipType.toUpperCase()} Auto-Skipped!`);
+                } else {
+                    showManualPrompt(e.data.skipType, skipTo);
+                }
+            } else if (e.data.type === 'ECHO_RECORD_STATUS') {
+                setStatus(e.data.msg);
+            }
+        });
+    } else {
+        // Inside iframe: receive title and commands
+        window.addEventListener('message', e => {
+            if (!e.data) return;
+            if (e.data.type === 'ECHO_TITLE') iframeTitle = e.data.title;
+            else if (e.data.type === 'ECHO_CMD_RECORD') iframeStartRecording(e.data.recType);
+            else if (e.data.type === 'ECHO_CMD_LISTEN') iframeStartListening(e.data.libEntry, e.data.threshold, e.data.key);
+            else if (e.data.type === 'ECHO_CMD_STOP') stopListening();
+            else if (e.data.type === 'ECHO_CMD_JUMP') { const v = video(); if (v) v.currentTime = e.data.skipTo; }
+            else if (e.data.type === 'ECHO_CMD_REPLAY') { const v = video(); if (v) { v.currentTime = e.data.startTime; v.play(); } }
         });
     }
 
@@ -158,35 +196,38 @@
         return out;
     }
 
+    // Main page: tell iframe to record
     function startRecording(type) {
+        setStatus(`🔴 Recording ${type.toUpperCase()}… (${CFG.SIG_DURATION_S}s)`);
+        broadcastToIframes({ type: 'ECHO_CMD_RECORD', recType: type });
+    }
+
+    // Iframe: actual recording logic
+    function iframeStartRecording(type) {
         const vid = video();
-        if (!vid) return;
-        if (!initAudio(vid)) { setStatus('❌ Audio init failed'); return; }
+        if (!vid) { window.parent.postMessage({ type: 'ECHO_RECORD_STATUS', msg: '❌ No video found in iframe' }, '*'); return; }
+        if (!initAudio(vid)) { window.parent.postMessage({ type: 'ECHO_RECORD_STATUS', msg: '❌ Audio init failed' }, '*'); return; }
         if (audioCtx.state === 'suspended') audioCtx.resume();
 
         recordType = type;
         isRecording = true;
         recordBuffer = [];
         const startTime = vid.currentTime;
-        setStatus(`🔴 Recording ${type.toUpperCase()}... (${CFG.SIG_DURATION_S}s)`);
+        window.parent.postMessage({ type: 'ECHO_RECORD_STATUS', msg: `🔴 Recording ${type.toUpperCase()}... (${CFG.SIG_DURATION_S}s)` }, '*');
 
         const ivl = setInterval(() => {
-            if (!isRecording || vid.paused) return; // Pause recording if video pauses
+            if (!isRecording || vid.paused) return;
             recordBuffer.push(Array.from(getFreqSnapshot()));
             if (recordBuffer.length >= CFG.SIG_DURATION_S * CFG.SAMPLE_RATE_HZ) {
                 clearInterval(ivl);
                 isRecording = false;
-                
-                // Store in pending instead of saving directly
-                pendingRecord = {
-                    type: recordType,
+                window.parent.postMessage({
+                    type: 'ECHO_RECORD_DONE',
+                    recType: type,
                     frames: recordBuffer,
                     startTime: startTime,
                     endTime: vid.currentTime
-                };
-                
-                showConfirmationUI();
-                setStatus(`✅ Recorded. Please confirm sample.`);
+                }, '*');
             }
         }, 1000 / CFG.SAMPLE_RATE_HZ);
     }
@@ -252,7 +293,14 @@
         }
     }
 
-    function startListening() {
+    // Main page: tell iframe to start listening
+    function startListening(libEntry, threshold, key) {
+        broadcastToIframes({ type: 'ECHO_CMD_LISTEN', libEntry, threshold, key });
+        isListening = true;
+    }
+
+    // Iframe: actual listening/correlation logic
+    function iframeStartListening(libEntry, threshold, key) {
         const vid = video();
         if (!vid || isListening) return;
         if (!initAudio(vid)) return;
@@ -272,27 +320,25 @@
             const snap = Array.from(getFreqSnapshot());
             liveRing.push(...snap);
 
-            const key = getSeriesKey();
-            if (!key || !lib[key]) return;
-            const entry = lib[key];
-
-            if (entry.op_sig && !hasSkippedOP && t < CFG.MATCH_WINDOW_S) {
-                const sigLen = flatten(entry.op_sig).length;
+            if (libEntry.op_sig && !hasSkippedOP && t < CFG.MATCH_WINDOW_S) {
+                const sigLen = flatten(libEntry.op_sig).length;
                 if (liveRing.length > sigLen * 2) liveRing.splice(0, liveRing.length - sigLen * 2);
-                const corr = correlateWindow(liveRing, entry.op_sig);
-                updateMeter(corr);
-                if (corr >= ui.threshold) {
+                const corr = correlateWindow(liveRing, libEntry.op_sig);
+                window.parent.postMessage({ type: 'ECHO_CORR_UPDATE', corr }, '*');
+                if (corr >= threshold) {
                     hasSkippedOP = true;
-                    triggerSkip('op', entry, t, v);
+                    const skipTo = t + (libEntry.op_dur || CFG.DEFAULT_SKIP_DUR);
+                    window.parent.postMessage({ type: 'ECHO_SKIP_TRIGGER', skipType: 'op', skipTo }, '*');
                 }
             }
 
-            if (entry.ed_sig && !hasSkippedED && dur > 0 && t > dur * 0.7) {
-                const corr = correlateWindow(liveRing, entry.ed_sig);
-                updateMeter(corr);
-                if (corr >= ui.threshold) {
+            if (libEntry.ed_sig && !hasSkippedED && dur > 0 && t > dur * 0.7) {
+                const corr = correlateWindow(liveRing, libEntry.ed_sig);
+                window.parent.postMessage({ type: 'ECHO_CORR_UPDATE', corr }, '*');
+                if (corr >= threshold) {
                     hasSkippedED = true;
-                    triggerSkip('ed', entry, t, v);
+                    const skipTo = t + (libEntry.ed_dur || CFG.DEFAULT_SKIP_DUR);
+                    window.parent.postMessage({ type: 'ECHO_SKIP_TRIGGER', skipType: 'ed', skipTo }, '*');
                 }
             }
         }, CFG.MATCH_INTERVAL_MS);
@@ -547,10 +593,8 @@
         $('#echo-rec-ed').onclick = () => startRecording('ed');
 
         $('#echo-replay-btn').onclick = () => {
-            const v = video();
-            if (v && pendingRecord) {
-                v.currentTime = pendingRecord.startTime;
-                v.play();
+            if (pendingRecord) {
+                broadcastToIframes({ type: 'ECHO_CMD_REPLAY', startTime: pendingRecord.startTime });
             }
         };
         
@@ -642,7 +686,7 @@
         }, 1500);
     }
 
-    /* ==================== VIDEO OBSERVER (runs everywhere) ==================== */
+    /* ==================== VIDEO OBSERVER ==================== */
     let currentVideo = null;
     const obs = new MutationObserver(() => {
         const v = video();
@@ -651,17 +695,27 @@
             hasSkippedOP = false;
             hasSkippedED = false;
 
-            v.addEventListener('play', () => {
-                const key = getSeriesKey();
-                if (key && lib[key] && (lib[key].op_sig || lib[key].ed_sig)) {
-                    if (!isListening) startListening();
-                    setStatus('👂 Listening…');
-                }
-            }, { once: true });
-
-            v.addEventListener('ended', () => stopListening());
+            if (!isMainPage) {
+                // Iframe: start listening when video plays if parent has lib entry
+                v.addEventListener('play', () => {
+                    // key/lib sent from main page via ECHO_CMD_LISTEN
+                }, { once: true });
+                v.addEventListener('ended', () => stopListening());
+            }
         }
     });
     obs.observe(document.body, { childList: true, subtree: true });
+
+    // Main page: watch for new episodes and trigger iframe listening
+    if (isMainPage) {
+        setInterval(() => {
+            const key = getSeriesKey();
+            if (!key || !lib[key] || isListening) return;
+            if (lib[key].op_sig || lib[key].ed_sig) {
+                startListening(lib[key], ui.threshold, key);
+                setStatus('👂 Listening…');
+            }
+        }, 3000);
+    }
 
 })();

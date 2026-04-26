@@ -1,6 +1,6 @@
 # 📺 Fullscreen Controller
 
-<img src="https://placehold.co/800x400/222222/FFF?text=Animehay+Fullscreen+Controller" width="50%" alt="Fullscreen Controller">
+![Fullscreen Controller](https://placehold.co/800x400/222222/FFF?text=Animehay+Fullscreen+Controller)
 
 A tiny helper that tries to keep you immersed when jumping to the next episode! 🎬
 

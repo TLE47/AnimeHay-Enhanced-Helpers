@@ -1,6 +1,6 @@
 # 💖 AnimeHay Episode Tracker
 
-<img src="../assets/tracker.png" width="50%" alt="Episode Tracker">
+![Episode Tracker](assets/tracker.png)
 
 Never lose your place again! This script perfectly highlights your next episode in gold. ✨
 

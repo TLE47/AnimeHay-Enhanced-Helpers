@@ -1,6 +1,6 @@
 # ☁️ Animehay2Anilist Sync
 
-<img src="../assets/sync.png" width="50%" alt="Animehay2Anilist">
+![Animehay2Anilist](assets/sync.png)
 
 Say goodbye to manual tracking! This clever little script automatically updates your [AniList](https://anilist.co) profile while you watch. 💖
 

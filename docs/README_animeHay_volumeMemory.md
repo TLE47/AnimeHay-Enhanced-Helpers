@@ -1,6 +1,6 @@
 # 🎵 Animehay Volume Memory
 
-<img src="../assets/volume.png" width="50%" alt="Volume Memory">
+![Volume Memory](assets/volume.png)
 
 Protect your ears! This sweet script remembers your perfect volume level across every episode you watch. 🎧
 

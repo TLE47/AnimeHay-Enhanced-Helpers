@@ -1,6 +1,6 @@
 # ⏩ AnimeHay Smart Video Skipper
 
-<img src="../assets/skipper.png" width="50%" alt="Smart Skipper">
+![Smart Skipper](assets/skipper.png)
 
 Tired of manually skipping 1:30 minute anime openings? Let this script do the skipping for you! 🚀
 

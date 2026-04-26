@@ -1,11 +1,10 @@
-# AnimeHay Enhanced: Gold Scores & AniList Progress (`animeHay_goldScore_Highlight.user.js`)
+# ⭐ Gold Score Highlight
 
-![Gold Score Highlight](https://placehold.co/800x400/222222/FFD700?text=Gold+Score+Highlight)
+![Gold Score Highlight](assets/gold.png)
 
-Highlights scores >= 9.0 in gold and colors your watched episodes based on your AniList progress.
+Make the best anime truly shine! This script highlights highly-rated shows to help you pick your next binge. 🌟
 
-## Features
-- Parses AniList to see what episodes you've watched.
-- Highlights watched episodes directly on the page to prevent losing your place.
-- Accentuates highly-rated anime by making scores >= 9.0 bold and gold.
-- Uses unified Token storage (compatible with the other scripts).
+### ✨ Magic Features
+- **Golden Ratings:** Turns any score 9.0 or higher bright gold! ✨
+- **Watched Colors:** Tints episodes you've already seen based on your AniList, so it's super easy to read! 🎨
+- **Unified Login:** Uses the same AniList token as your other scripts. 🔑

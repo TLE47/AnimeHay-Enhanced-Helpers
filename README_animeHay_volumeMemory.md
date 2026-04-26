@@ -1,10 +1,10 @@
-# Animehay Volume Memory (`animeHay_volumeMemory.user.js`)
+# 🎵 Animehay Volume Memory
 
-![Volume Memory](https://placehold.co/800x400/222222/3db4f2?text=Volume+Memory)
+![Volume Memory](assets/volume.png)
 
-Remembers your volume level across page loads and iframes, automatically restoring it and updating the player UI.
+Protect your ears! This sweet script remembers your perfect volume level across every episode you watch. 🎧
 
-## Features
-- Stores volume level dynamically as you adjust it.
-- Applies the stored volume immediately when the player loads.
-- Dispatches UI update events so the player bar reflects the saved volume accurately.
+### ✨ Magic Features
+- **Auto-Saves:** Remembers your volume adjustments instantly! 💾
+- **Auto-Restores:** Loads your preferred volume the second the video player boots up.
+- **Visual Sync:** Updates the player's volume bar so everything matches perfectly. 🎚️

@@ -1,10 +1,9 @@
-# Animehay Fullscreen Controller (`animeHay_forceFS_ifNext.user.js`)
+# 📺 Fullscreen Controller
 
 ![Fullscreen Controller](https://placehold.co/800x400/222222/FFF?text=Animehay+Fullscreen+Controller)
 
-Automatically attempts to force fullscreen mode when clicking the "Next Episode" button on the Animehay player.
+A tiny helper that tries to keep you immersed when jumping to the next episode! 🎬
 
-## Features
-- Listens globally for the "Next Episode" button click.
-- Attempts to automatically enter fullscreen upon the next video load.
-- Seamless, non-intrusive background operation.
+### ✨ Magic Features
+- **Next-Ep Listener:** Waits for you to click "Next Episode". 👂
+- **Auto-Fullscreen:** Attempts to pop the next episode right back into fullscreen for you! 🍿

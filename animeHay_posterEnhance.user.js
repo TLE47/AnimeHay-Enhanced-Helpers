@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         AnimeHay Poster Enhance
-// @version      1.1
+// @version      1.2
 // @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_posterEnhance.user.js
 // @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_posterEnhance.user.js
 // @description  Sharpens and enhances low-quality anime poster images on AnimeHay
@@ -25,40 +25,42 @@
     // CSS `filter` delegates to the GPU's colour pipeline which preserves
     // the full colour gamut correctly.
     GM_addStyle(`
-        /* ── Baseline enhancement for every poster image ── */
+        /* ── Baseline: sharp pixel look, minimal brightness ── */
         .mc__poster img {
-            /* Subtle contrast/saturation lift — keeps colours accurate */
-            filter:
-                contrast(1.1)
-                brightness(1.04)
-                saturate(1.12)
-                drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+            /* Pixelated rendering kills bilinear smoothing → hard crisp edges */
+            image-rendering: pixelated;
+            image-rendering: -webkit-optimize-contrast; /* Chromium fallback */
 
-            /* Force GPU compositing layer for smooth rendering */
+            /* High contrast to make outlines/edges pop;
+               brightness stays at 1.01 — barely-there lift, not washed out */
+            filter:
+                contrast(1.22)
+                brightness(1.01)
+                saturate(1.08)
+                drop-shadow(0 2px 5px rgba(0,0,0,0.4));
+
+            /* GPU layer */
             transform: translateZ(0);
             backface-visibility: hidden;
             will-change: filter, transform;
 
-            /* Crisp upscale hint for small source images */
-            image-rendering: -webkit-optimize-contrast;
-
-            border-radius: 5px;
-            transition: filter 0.25s ease, transform 0.25s ease;
+            border-radius: 4px;
+            transition: filter 0.2s ease, transform 0.2s ease;
         }
 
-        /* ── Hover: lift + slight colour pop ── */
+        /* ── Hover: sharper pop, subtle scale ── */
         .mc__poster:hover img {
             filter:
-                contrast(1.14)
-                brightness(1.07)
-                saturate(1.18)
-                drop-shadow(0 6px 14px rgba(0,0,0,0.5));
+                contrast(1.28)
+                brightness(1.03)
+                saturate(1.12)
+                drop-shadow(0 5px 12px rgba(0,0,0,0.55));
             transform: translateZ(0) scale(1.04);
             z-index: 2;
             position: relative;
         }
 
-        /* ── Wrapper tweak: clip overflow so scale doesn't spill ── */
+        /* ── Allow scale without clipping ── */
         .mc__poster {
             overflow: visible !important;
         }

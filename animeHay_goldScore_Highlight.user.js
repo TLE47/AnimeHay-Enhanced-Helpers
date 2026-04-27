@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         AnimeHay Enhanced: Gold Scores & AniList Progress
-// @version      1.3
+// @version      2.0
 // @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_goldScore_Highlight.user.js
 // @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_goldScore_Highlight.user.js
-// @description  Highlights scores >= 9.0 and colors watched episodes based on AniList
-// @author       Gemini
+// @description  Gradient score highlights >= 8.9 and colors watched episodes based on AniList
+// @author       Gemini (refactored)
 // @include      /.*animehay.*/
 // @exclude      *://github.com/*
 // @exclude      *://*.github.com/*
@@ -12,149 +12,220 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @connect      graphql.anilist.co
+// @run-at       document-idle
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    let TOKEN = GM_getValue("anilist_token", "");
-    let USERNAME = GM_getValue("anilist_username", "");
+    // ─── Auth setup ───────────────────────────────────────────────────────────
+    let TOKEN = GM_getValue('anilist_token', '');
+    let USERNAME = GM_getValue('anilist_username', '');
 
     if (!TOKEN || !USERNAME) {
-        const userToken = prompt("GoldScore: Please enter your AniList JWT Token (one-time setup):", TOKEN);
-        if (userToken) {
-            const userName = prompt("GoldScore: Please enter your AniList Username:", USERNAME);
-            if (userName) {
-                GM_setValue("anilist_token", userToken.trim());
-                GM_setValue("anilist_username", userName.trim());
-                TOKEN = userToken.trim();
-                USERNAME = userName.trim();
-                alert("Token and Username saved! Refreshing page...");
+        const t = prompt('GoldScore: Enter your AniList JWT Token (one-time setup):', TOKEN);
+        if (!t?.trim()) { console.warn('[GoldScore] No token — AniList sync disabled.'); }
+        else {
+            const u = prompt('GoldScore: Enter your AniList Username:', USERNAME);
+            if (u?.trim()) {
+                GM_setValue('anilist_token', t.trim());
+                GM_setValue('anilist_username', u.trim());
+                alert('Saved! Refreshing…');
                 location.reload();
                 return;
             }
         }
-        console.error("No token/username provided. AniList sync will not function.");
     }
 
-    const CONFIG = {
-        anilistToken: TOKEN,
-        userName: USERNAME,
-        watchedBgColor: '#022b4a',
-        watchedTextColor: '#ffffff'
-    };
+    const TOKEN_OK = TOKEN.length > 10;
 
-    // --- 1. GOLD SCORE HIGHLIGHTER ---
-    function highlightScores() {
-        document.querySelectorAll('div.score').forEach(div => {
-            const score = parseFloat(div.textContent.trim());
-            if (!isNaN(score) && score >= 9.0) {
-                div.style.backgroundColor = '#FFD700';
-                div.style.color = '#000';
-                div.style.fontWeight = 'bold';
-            }
-        });
-    }
+    // ─── Score colour scale ───────────────────────────────────────────────────
+    // Maps a score in [8.9, 10] to a vivid colour.
+    // We interpolate through three waypoints:
+    //   8.9  → deep blue-violet  (#6B3FA0)
+    //   9.4  → rich gold         (#F5A623)
+    //   10.0 → radiant crimson   (#FF2D55)
+    // This gives a "rare → legendary → mythic" feel that scales visually.
 
-    function syncAniListProgress() {
-        const episodeContainer = document.querySelector('.list-item-episode');
-        if (!episodeContainer) return;
+    const WAYPOINTS = [
+        { t: 0.0, r: 107, g: 63, b: 160 }, // 8.9  — deep violet
+        { t: 0.45, r: 245, g: 166, b: 35 }, // 9.35 — gold
+        { t: 0.75, r: 255, g: 80, b: 0 }, // 9.65 — ember orange
+        { t: 1.0, r: 255, g: 20, b: 80 }, // 10.0 — crimson
+    ];
 
-        // 1. Get Main Title
-        let mainTitle = document.querySelector('h1')?.innerText
-            .split(/Tập|Tap/i)[0]
-            .replace(/Vietsub|Thuyết Minh|Lồng Tiếng/gi, '')
-            .trim();
+    function lerpChannel(a, b, f) { return Math.round(a + (b - a) * f); }
 
-        // 2. Get "Other Names" from the specific div provided
-        let otherNames = [];
-        const otherNameDiv = document.querySelector('.name_other');
-        if (otherNameDiv) {
-            // Get the text from the second child div (where the titles are)
-            const namesText = otherNameDiv.querySelectorAll('div')[1]?.innerText || "";
-            // Split by comma or semicolon and clean up
-            otherNames = namesText.split(/[,;]/).map(n => n.trim()).filter(n => n.length > 0);
+    function scoreToColor(score) {
+        const MIN = 8.9, MAX = 10.0;
+        const t = Math.max(0, Math.min(1, (score - MIN) / (MAX - MIN)));
+
+        // Find which segment t falls in
+        let lo = WAYPOINTS[0], hi = WAYPOINTS[1];
+        for (let i = 1; i < WAYPOINTS.length - 1; i++) {
+            if (t >= WAYPOINTS[i].t) { lo = WAYPOINTS[i]; hi = WAYPOINTS[i + 1]; }
         }
 
-        // Combine all possible titles to check
-        const allPotentialTitles = [mainTitle, ...otherNames].filter(Boolean);
+        const segT = lo.t === hi.t ? 0 : (t - lo.t) / (hi.t - lo.t);
+        const r = lerpChannel(lo.r, hi.r, segT);
+        const g = lerpChannel(lo.g, hi.g, segT);
+        const b = lerpChannel(lo.b, hi.b, segT);
 
-        if (allPotentialTitles.length === 0 || CONFIG.anilistToken.length < 50) return;
+        // Glow intensity scales with score
+        const glowAlpha = (0.35 + t * 0.45).toFixed(2);
+        const glowSpread = Math.round(4 + t * 10);
+        return {
+            bg: `rgb(${r},${g},${b})`,
+            text: t > 0.35 ? '#fff' : '#f0e6ff',
+            glow: `0 0 ${glowSpread}px rgba(${r},${g},${b},${glowAlpha})`,
+            score: t, // 0-1 for badge sizing
+        };
+    }
 
-        const query = `
-        query ($userName: String) {
-          MediaListCollection(userName: $userName, type: ANIME, status: CURRENT) {
-            lists {
-              entries {
-                progress
-                media {
-                  title { romaji english native }
+    // Parse score from text that may include an emoji prefix, e.g. "⭐ 9.9"
+    function parseScore(text) {
+        const m = text.match(/[\d]+\.[\d]+|[\d]+/);
+        return m ? parseFloat(m[0]) : NaN;
+    }
+
+    // ─── Score highlighter ────────────────────────────────────────────────────
+    // Supports both old `.score` and new `.mc__score` selectors.
+    const SCORE_SEL = '.mc__score, div.score';
+    const PROCESSED = new WeakSet();
+
+    function highlightScores() {
+        document.querySelectorAll(SCORE_SEL).forEach(el => {
+            if (PROCESSED.has(el)) return;
+            const score = parseScore(el.textContent);
+            if (isNaN(score) || score < 8.9) return;
+
+            PROCESSED.add(el);
+            const c = scoreToColor(score);
+
+            // Scale font/padding slightly for higher scores
+            const boost = Math.round(c.score * 2);
+
+            el.style.cssText += [
+                `background:${c.bg}`,
+                `color:${c.text}`,
+                `font-weight:bold`,
+                `box-shadow:${c.glow}`,
+                `border-radius:6px`,
+                `padding:${1 + boost}px ${4 + boost}px`,
+                `font-size:${11 + boost}px`,
+                `transition:transform .15s`,
+                `display:inline-block`,
+                `cursor:default`,
+            ].join(';');
+
+            el.title = `Score ${score} — ${score >= 9.8 ? 'Mythic' : score >= 9.4 ? 'Legendary' : score >= 9.1 ? 'Epic' : 'Great'}`;
+
+            el.addEventListener('mouseenter', () => el.style.transform = 'scale(1.1)');
+            el.addEventListener('mouseleave', () => el.style.transform = '');
+        });
+    }
+
+    // ─── AniList progress sync ────────────────────────────────────────────────
+    // Uses a direct title search (one query per title candidate) instead of
+    // downloading the entire watchlist, which is faster and less wasteful.
+
+    function cleanTitle(s) {
+        return s
+            .replace(/Tập\s*\d+|Tap\s*\d+/gi, '')
+            .replace(/vietsub|thuyết minh|lồng tiếng|trọn bộ/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function gatherTitles() {
+        const titles = new Set();
+
+        const h1 = document.querySelector('h1')?.innerText;
+        if (h1) titles.add(cleanTitle(h1));
+
+        // ".name_other" block — second child div holds the comma/semicolon list
+        const nameOther = document.querySelector('.name_other');
+        if (nameOther) {
+            const raw = nameOther.querySelectorAll('div')[1]?.innerText || '';
+            raw.split(/[,;]/).map(n => n.trim()).filter(Boolean).forEach(n => titles.add(n));
+        }
+
+        return [...titles].filter(t => t.length > 2);
+    }
+
+    // Search AniList for a single title; returns {progress, title} or null
+    function queryAniList(title) {
+        return new Promise(resolve => {
+            const query = `
+            query($s: String) {
+              Page(page: 1, perPage: 1) {
+                mediaList(userName: "${USERNAME}", type: ANIME, search: $s, status: CURRENT) {
+                  progress
+                  media { title { romaji } }
                 }
               }
-            }
-          }
-        }`;
-
-        GM_xmlhttpRequest({
-            method: "POST",
-            url: "https://graphql.anilist.co",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": "Bearer " + CONFIG.anilistToken.trim(),
-            },
-            data: JSON.stringify({
-                query: query,
-                variables: { userName: CONFIG.userName }
-            }),
-            onload: function(response) {
-                try {
-                    const result = JSON.parse(response.responseText);
-                    if (result.errors) return;
-
-                    const entries = result.data.MediaListCollection.lists.flatMap(l => l.entries);
-
-                    // Match logic: Check every title from AnimeHay against every title from AniList
-                    const match = entries.find(e => {
-                        const aniTitles = [
-                            e.media.title.romaji?.toLowerCase(),
-                            e.media.title.english?.toLowerCase(),
-                            e.media.title.native?.toLowerCase()
-                        ].filter(Boolean);
-
-                        return allPotentialTitles.some(localTitle => {
-                            const lt = localTitle.toLowerCase();
-                            return aniTitles.some(at => at.includes(lt) || lt.includes(at));
-                        });
-                    });
-
-                    if (match) {
-                        console.log(`%cAniList Match Found!`, "color: #00ff00", match.media.title.romaji);
-                        applyWatchedStyles(match.progress);
-                    } else {
-                        console.log("No match found for titles:", allPotentialTitles);
-                    }
-                } catch (e) { console.error(e); }
-            }
+            }`;
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: 'https://graphql.anilist.co',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${TOKEN}`,
+                },
+                data: JSON.stringify({ query, variables: { s: title } }),
+                onload(res) {
+                    try {
+                        const list = JSON.parse(res.responseText)?.data?.Page?.mediaList;
+                        if (list?.length) resolve({ progress: list[0].progress, title: list[0].media.title.romaji });
+                        else resolve(null);
+                    } catch (_) { resolve(null); }
+                },
+                onerror() { resolve(null); },
+            });
         });
+    }
+
+    async function syncAniListProgress() {
+        if (!TOKEN_OK || !USERNAME) return;
+        if (!document.querySelector('.list-item-episode')) return;
+
+        const titles = gatherTitles();
+        if (!titles.length) return;
+
+        // Search all titles in parallel; take the first hit
+        const results = await Promise.all(titles.map(queryAniList));
+        const match = results.find(r => r !== null);
+
+        if (match) {
+            console.log(`[GoldScore] AniList match: "${match.title}" — progress ep ${match.progress}`);
+            applyWatchedStyles(match.progress);
+        } else {
+            console.log('[GoldScore] No AniList match for:', titles);
+        }
     }
 
     function applyWatchedStyles(progress) {
         document.querySelectorAll('.list-item-episode a').forEach(link => {
-            const epNumStr = link.querySelector('span')?.innerText || link.innerText;
-            const epNum = parseInt(epNumStr.trim());
+            const text = link.querySelector('span')?.innerText ?? link.innerText;
+            const epNum = parseInt(text.trim());
+            if (isNaN(epNum) || epNum > progress) return;
 
-            if (!isNaN(epNum) && epNum <= progress) {
-                link.style.setProperty('background-color', CONFIG.watchedBgColor, 'important');
-                link.style.setProperty('color', CONFIG.watchedTextColor, 'important');
-                link.style.setProperty('border', '1px solid rgba(255,255,255,0.1)', 'important');
-            }
+            // Colour intensity fades slightly for older episodes
+            const recency = Math.min(1, (progress - epNum) / 12); // 0 = most recent
+            const alpha = (1 - recency * 0.4).toFixed(2);
+
+            link.style.setProperty('background-color', `rgba(2, 43, 74, ${alpha})`, 'important');
+            link.style.setProperty('color', '#a8d8f0', 'important');
+            link.style.setProperty('border', '1px solid rgba(100,180,255,0.15)', 'important');
         });
     }
 
+    // ─── Boot ─────────────────────────────────────────────────────────────────
     highlightScores();
     syncAniListProgress();
 
-    const observer = new MutationObserver(highlightScores);
-    observer.observe(document.body, { childList: true, subtree: true });
+    // Re-run score highlights when new cards are injected (infinite scroll / SPA nav)
+    const obs = new MutationObserver(highlightScores);
+    obs.observe(document.body, { childList: true, subtree: true });
 
 })();

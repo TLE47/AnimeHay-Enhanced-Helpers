@@ -1,55 +1,78 @@
 // ==UserScript==
-// @name         Animehay Volume Memory - Final Fix
-// @version      1.5
+// @name         Animehay Volume Memory
+// @version      2.0
 // @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_volumeMemory.user.js
 // @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_volumeMemory.user.js
-// @description  Remembers volume across iframes and updates UI
-// @author       Gemini
+// @description  Remembers volume and mute state across episodes
+// @author       Gemini (refactored)
 // @include      /.*animehay.*/
 // @match        *://*.ahplayer.com/*
+// @match        *://*.playhydrax.*/*
+// @match        *://*.ahay.stream/*
 // @exclude      *://github.com/*
 // @exclude      *://*.github.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @run-at       document-idle
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    const STORAGE_KEY = 'global_player_volume';
+    // Volume only lives in iframes — bail out on the main page immediately.
+    // Checking window.self === window.top is more reliable than URL matching
+    // because the player domain can change without notice.
+    if (window.self === window.top) return;
 
-    function initVolumeLogic() {
-        // We look for the video tag directly
-        const video = document.querySelector('video');
+    const VOL_KEY = 'player_volume';
+    const MUTE_KEY = 'player_muted';
 
-        if (video && !video.dataset.volumeHandled) {
-            video.dataset.volumeHandled = "true";
-
-            // 1. Load volume from global storage
-            const savedVol = GM_getValue(STORAGE_KEY, 0.5);
-            video.volume = savedVol;
-
-            // 2. Force the JW Player UI to update (the orange bar)
-            // We dispatch a volume change event so the player's JS sees it
-            video.dispatchEvent(new Event('volumechange'));
-
-            // 3. Save volume whenever it changes
-            video.addEventListener('volumechange', () => {
-                // Don't save if muted or 0
-                if (!video.muted && video.volume > 0) {
-                    GM_setValue(STORAGE_KEY, video.volume);
-                }
-            });
-        }
+    // Debounce saves so rapid scrubbing doesn't hammer GM_setValue
+    let saveTimer = null;
+    function scheduleSave(video) {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+            GM_setValue(VOL_KEY, video.volume);
+            GM_setValue(MUTE_KEY, video.muted);
+        }, 300);
     }
 
-    // Run often enough to catch the video as it loads in the iframe
-    const timer = setInterval(() => {
-        if (document.querySelector('video')) {
-            initVolumeLogic();
-        }
-    }, 1000);
+    function applyAndTrack(video) {
+        if (video.dataset.volInit) return;
+        video.dataset.volInit = '1';
 
-    // Stop looking after 15 seconds to save battery/CPU
-    setTimeout(() => clearInterval(timer), 15000);
+        const savedVol = GM_getValue(VOL_KEY, 0.5);
+        const savedMute = GM_getValue(MUTE_KEY, false);
+
+        // Apply after metadata is ready so the player doesn't overwrite us
+        const apply = () => {
+            video.volume = Math.max(0, Math.min(1, savedVol));
+            video.muted = savedMute;
+        };
+
+        if (video.readyState >= 1) {
+            apply();
+        } else {
+            video.addEventListener('loadedmetadata', apply, { once: true });
+        }
+
+        // Save on user-driven changes only — skip the initial programmatic set
+        // by waiting one tick before attaching the listener
+        setTimeout(() => {
+            video.addEventListener('volumechange', () => scheduleSave(video));
+        }, 0);
+    }
+
+    // Use MutationObserver so we catch the video no matter when it appears,
+    // including after slow iframe loads or SPA-style episode changes.
+    const obs = new MutationObserver(() => {
+        const video = document.querySelector('video');
+        if (video) applyAndTrack(video);
+    });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+
+    // Also try immediately in case the video is already in the DOM
+    const existing = document.querySelector('video');
+    if (existing) applyAndTrack(existing);
+
 })();

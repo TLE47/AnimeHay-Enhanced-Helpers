@@ -32,7 +32,7 @@
             max-width: 320px;
             min-width: 220px;
             max-height: 260px;
-            pointer-events: none;
+            pointer-events: auto;
             opacity: 0;
             transform: translateY(6px) scale(0.97);
             transition: opacity 0.18s ease, transform 0.18s ease;
@@ -197,13 +197,19 @@
 
     // ─── Event delegation ─────────────────────────────────────────────────────
     document.addEventListener('mouseover', async (e) => {
-        const overlay = e.target.closest('.mc__overlay');
+        const target = e.target;
+        const overlay = target.closest('.mc__overlay');
+        const isPopup = target.closest('#ah-desc-popup');
+
+        if (overlay || isPopup) {
+            clearTimeout(hideTimeout);
+        }
+
         if (!overlay) return;
 
         const card = overlay.closest('[id*="movie-id-"]');
         if (!card) return;
 
-        // .mc__name is the correct double-underscore selector
         const nameEl = card.querySelector('.mc__name');
         const linkEl = card.querySelector('a.mc__link, a[href*="thong-tin-phim"]');
         if (!linkEl) return;
@@ -215,7 +221,6 @@
         currentUrl = infoUrl;
         currentCard = card;
 
-        clearTimeout(hideTimeout);
         showLoading(animeName);
         positionPopup(card);
 
@@ -226,16 +231,18 @@
     }, { passive: true });
 
     document.addEventListener('mouseout', (e) => {
-        if (!e.target.closest('.mc__overlay')) return;
-        hideTimeout = setTimeout(() => {
-            currentUrl = null;
-            currentCard = null;
-            hidePopup();
-        }, 120);
-    }, { passive: true });
+        const related = e.relatedTarget;
+        const isLeavingToPopup = related?.closest('#ah-desc-popup');
+        const isLeavingToOverlay = related?.closest('.mc__overlay');
 
-    document.addEventListener('mouseover', (e) => {
-        if (e.target.closest('.mc__overlay')) clearTimeout(hideTimeout);
+        // Only hide if we're not moving between the card and the popup
+        if (!isLeavingToPopup && !isLeavingToOverlay) {
+            hideTimeout = setTimeout(() => {
+                currentUrl = null;
+                currentCard = null;
+                hidePopup();
+            }, 300); // slightly longer buffer for easier mouse transition
+        }
     }, { passive: true });
 
 })();

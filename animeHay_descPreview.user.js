@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         AnimeHay Description Preview
-// @version      1.0
+// @version      1.1
 // @updateURL    https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_descPreview.user.js
 // @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_descPreview.user.js
 // @description  Hover a poster to preview the anime description without opening its page
 // @author       TLE47
-// @include      /.*animehay.*/
+// @match        *://*.animehay01.site/*
+// @match        *://*.animehay.tv/*
+// @match        *://*.animehay.uno/*
 // @exclude      *://github.com/*
 // @exclude      *://*.github.com/*
 // @grant        GM_addStyle
@@ -24,14 +26,13 @@
 
     // ─── CSS ─────────────────────────────────────────────────────────────────
     GM_addStyle(`
-        /* Tooltip container */
         #ah-desc-popup {
             position: fixed;
             z-index: 2147483647;
             max-width: 320px;
             min-width: 220px;
             max-height: 260px;
-            pointer-events: none;       /* never intercepts card hover */
+            pointer-events: none;
             opacity: 0;
             transform: translateY(6px) scale(0.97);
             transition: opacity 0.18s ease, transform 0.18s ease;
@@ -41,8 +42,6 @@
             opacity: 1;
             transform: translateY(0) scale(1);
         }
-
-        /* Glass card */
         #ah-desc-inner {
             background: rgba(12, 12, 18, 0.92);
             backdrop-filter: blur(14px) saturate(1.4);
@@ -55,8 +54,6 @@
             flex-direction: column;
             max-height: 260px;
         }
-
-        /* Header bar */
         #ah-desc-header {
             padding: 10px 14px 6px;
             background: rgba(255,255,255,0.04);
@@ -79,8 +76,6 @@
             text-transform: uppercase;
             letter-spacing: 0.06em;
         }
-
-        /* Scrollable body */
         #ah-desc-body {
             padding: 10px 14px 12px;
             overflow-y: auto;
@@ -96,8 +91,6 @@
             background: rgba(255,255,255,0.18);
             border-radius: 2px;
         }
-
-        /* Loading shimmer */
         .ah-shimmer {
             height: 10px;
             border-radius: 4px;
@@ -130,29 +123,27 @@
     document.body.appendChild(popup);
 
     const titleEl = popup.querySelector('#ah-desc-title');
-    const bodyEl  = popup.querySelector('#ah-desc-body');
+    const bodyEl = popup.querySelector('#ah-desc-body');
 
     // ─── Positioning ──────────────────────────────────────────────────────────
-    const MARGIN = 14; // px gap from card edge
+    const MARGIN = 14;
 
     function positionPopup(cardEl) {
-        const rect  = cardEl.getBoundingClientRect();
-        const pw    = popup.offsetWidth  || 320;
-        const ph    = popup.offsetHeight || 260;
-        const vw    = window.innerWidth;
-        const vh    = window.innerHeight;
+        const rect = cardEl.getBoundingClientRect();
+        const pw = popup.offsetWidth || 320;
+        const ph = popup.offsetHeight || 260;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
 
-        // Prefer right side; fall back to left
         let left = rect.right + MARGIN;
         if (left + pw > vw - 8) left = rect.left - pw - MARGIN;
         left = Math.max(8, Math.min(left, vw - pw - 8));
 
-        // Vertically center on card, clamp to viewport
         let top = rect.top + (rect.height - ph) / 2;
         top = Math.max(8, Math.min(top, vh - ph - 8));
 
         popup.style.left = left + 'px';
-        popup.style.top  = top  + 'px';
+        popup.style.top = top + 'px';
     }
 
     // ─── Fetch description via GM (bypasses CORS) ─────────────────────────────
@@ -164,7 +155,7 @@
                 url,
                 onload(res) {
                     try {
-                        const doc  = new DOMParser().parseFromString(res.responseText, 'text/html');
+                        const doc = new DOMParser().parseFromString(res.responseText, 'text/html');
                         const desc = doc.getElementById('aim-desc-content');
                         const text = desc ? desc.innerText.trim() : null;
                         cache.set(url, text);
@@ -188,9 +179,11 @@
 
     function showContent(title, text) {
         titleEl.textContent = title || '';
-        bodyEl.textContent  = text  || '(Không có mô tả)';
-        bodyEl.scrollTop    = 0;
+        bodyEl.textContent = text || '(Không có mô tả)';
+        bodyEl.scrollTop = 0;
         popup.classList.add('visible');
+        // Re-position after content reflows the popup height
+        requestAnimationFrame(() => positionPopup(currentCard));
     }
 
     function hidePopup() {
@@ -198,60 +191,49 @@
     }
 
     // ─── State ────────────────────────────────────────────────────────────────
-    let currentUrl  = null;   // URL being shown / loading
-    let hideTimeout = null;   // debounce hide
+    let currentUrl = null;
+    let currentCard = null;
+    let hideTimeout = null;
 
-    // ─── Event delegation on document ─────────────────────────────────────────
-    // Listening at the document level means we catch posters inside any
-    // dynamically injected container (infinite scroll, SPA navigation, etc.)
-
+    // ─── Event delegation ─────────────────────────────────────────────────────
     document.addEventListener('mouseover', async (e) => {
         const overlay = e.target.closest('.mc__overlay');
         if (!overlay) return;
 
-        // Find the outer movie-id-XXXX wrapper
-        const card = overlay.closest('[class*="movie-id-"]');
+        const card = overlay.closest('[id*="movie-id-"]');
         if (!card) return;
 
-        // Grab the anime name and the info-page link
-        const nameEl = card.querySelector('.mc_name, .mc__name');
+        // .mc__name is the correct double-underscore selector
+        const nameEl = card.querySelector('.mc__name');
         const linkEl = card.querySelector('a.mc__link, a[href*="thong-tin-phim"]');
         if (!linkEl) return;
 
         const animeName = nameEl?.textContent?.trim() || '?';
-        const infoUrl   = linkEl.href;
+        const infoUrl = linkEl.href;
 
-        // Don't re-trigger if we're already showing this card
         if (infoUrl === currentUrl) return;
         currentUrl = infoUrl;
+        currentCard = card;
 
         clearTimeout(hideTimeout);
-
         showLoading(animeName);
         positionPopup(card);
 
         const desc = await fetchDesc(infoUrl);
-        // Guard: user may have moved away while fetching
         if (currentUrl !== infoUrl) return;
 
         showContent(animeName, desc);
-        positionPopup(card); // re-position after content makes popup grow
     }, { passive: true });
 
     document.addEventListener('mouseout', (e) => {
-        const overlay = e.target.closest('.mc__overlay');
-        if (!overlay) return;
-
-        // Short delay so moving into the popup area or an adjacent card
-        // doesn't cause flicker (popup is pointer-events:none so this is
-        // purely cosmetic debounce)
+        if (!e.target.closest('.mc__overlay')) return;
         hideTimeout = setTimeout(() => {
             currentUrl = null;
+            currentCard = null;
             hidePopup();
         }, 120);
     }, { passive: true });
 
-    // Hide if user moves back over the same card before timeout fires
     document.addEventListener('mouseover', (e) => {
         if (e.target.closest('.mc__overlay')) clearTimeout(hideTimeout);
     }, { passive: true });

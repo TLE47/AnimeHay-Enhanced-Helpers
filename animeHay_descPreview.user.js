@@ -43,12 +43,12 @@
             transform: translateY(0) scale(1);
         }
         #ah-desc-inner {
-            background: rgba(12, 12, 18, 0.92);
-            backdrop-filter: blur(14px) saturate(1.4);
-            -webkit-backdrop-filter: blur(14px) saturate(1.4);
-            border: 1px solid rgba(255,255,255,0.10);
+            background: rgba(12, 12, 18, 0.65);
+            backdrop-filter: blur(20px) saturate(1.6);
+            -webkit-backdrop-filter: blur(20px) saturate(1.6);
+            border: 1px solid rgba(255,255,255,0.14);
             border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.4);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -81,7 +81,8 @@
             overflow-y: auto;
             font-size: 12px;
             line-height: 1.65;
-            color: rgba(230,230,240,0.88);
+            color: rgba(255, 255, 255, 0.95);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
             scrollbar-width: thin;
             scrollbar-color: rgba(255,255,255,0.15) transparent;
             word-break: break-word;

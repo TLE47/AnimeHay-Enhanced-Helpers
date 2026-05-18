@@ -11,6 +11,7 @@ A super cute and handy script suite to make watching on AnimeHay an absolute bre
 - ⭐ **[Gold Score Highlight](docs/README_animeHay_goldScore_Highlight.md)**: Make top-tier 9.0+ anime sparkle!
 - 🎵 **[Volume Memory](docs/README_animeHay_volumeMemory.md)**: Keeps your perfect volume saved.
 - 📺 **[Fullscreen Controller](docs/README_animeHay_forceFS_ifNext.md)**: Hop into fullscreen for the next episode.
+- 🎨 **[Layout Consistent](animeHay_layoutNormalize.user.js)**: Makes all pages look like the modern Page 1!
 - 🎧 **[EchoSkip – Audio OST Skipper](docs/README_animeHay_echoSkipper.md)**: Teach it your OP/ED once, it skips forever via audio fingerprinting!
 
 Happy watching! 🍿✨

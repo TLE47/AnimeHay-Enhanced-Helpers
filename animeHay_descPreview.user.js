@@ -5,7 +5,7 @@
 // @downloadURL  https://raw.githubusercontent.com/TLE47/AnimeHay-Enhanced-Helpers/main/animeHay_descPreview.user.js
 // @description  Hover a poster to preview the anime description without opening its page
 // @author       TLE47
-// @match        *://*.animehay01.site/*
+// @include      /^https?:\/\/.*animehay.*\..*/
 // @match        *://*.animehay.tv/*
 // @match        *://*.animehay.uno/*
 // @exclude      *://github.com/*
